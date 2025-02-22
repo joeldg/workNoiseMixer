@@ -9,12 +9,12 @@ import curses
 import json  # new import
 import os  # new import
 
-PRESET_FILE = "~/.preset.json"  # new preset path
+PRESET_FILE = "/Users/jgan/Projects/brownnoise/preset.json"  # new preset path
 
 # Global state for effective rate (for brown noise)
 base_rate = None  # set in main()
-current_eff_rate = None
-target_eff_rate = None
+current_eff_rate = None  # set in main()
+target_eff_rate = None  # set in main()
 
 # Global states for brown noise (alternative method)
 last_brown = 0.0
@@ -36,10 +36,25 @@ mix_settings = {
     "grey": {"mix": 0.2, "osc": False, "osc_phase": 0.0},
     "green": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
     "black": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
+    "brown.2": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
+    "brown.3": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
+    "brown.4": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
 }
 osc_freq = 0.1  # slower oscillation frequency
 log_message = ""  # global log message to display in UI
-types_order = list(mix_settings.keys())
+types_order = [
+    "white",
+    "pink",
+    "brown",
+    "brown.2",
+    "brown.3",
+    "brown.4",
+    "blue",
+    "violet",
+    "grey",
+    "green",
+    "black",
+]
 selected_index = 0  # for slider UI
 
 
@@ -82,11 +97,30 @@ def multi_noise_callback(outdata, frames, time_info, status):
 
     # Brown noise: revert to the previously used algorithm with increased alpha
     brown = np.empty(frames)
-    alpha = 0.1  # increased from 0.02 for stronger integration
+    alpha = 0.9  # increased from 0.02 for stronger integration
     for i in range(frames):
         step = np.random.randn() * 0.1 * scale
         last_brown = alpha * step + (1 - alpha) * last_brown
         brown[i] = last_brown
+
+    # Additional Brown algorithms:
+    # brown.2: cumulative sum of white noise (traditional Brown)
+    brown2 = np.cumsum(white)
+    brown2 = brown2 - np.mean(brown2)
+    if np.max(np.abs(brown2)) != 0:
+        brown2 = brown2 / np.max(np.abs(brown2))
+
+    # brown.3: leaky integrator with periodic modulation
+    brown3 = np.empty(frames)
+    state = 0.0
+    for i in range(frames):
+        step = np.random.randn() * 0.1 * scale
+        state = 0.95 * state + step
+        # Add low-frequency oscillation (periodic modulation)
+        brown3[i] = state + 0.1 * math.sin(2 * math.pi * i / frames)
+
+    # brown.4: standard brown modulated by a low-frequency sinusoid
+    brown4 = brown * (0.5 + 0.5 * np.sin(2 * math.pi * np.arange(frames) / frames))
 
     # Blue noise: first difference of white noise
     blue = np.concatenate(([0], np.diff(white)))
@@ -108,6 +142,9 @@ def multi_noise_callback(outdata, frames, time_info, status):
         "white": 0.3,
         "pink": 0.3,
         "brown": 1.0,  # increased brown gain from 0.3 to 1.0
+        "brown.2": 1.0,
+        "brown.3": 1.0,
+        "brown.4": 1.0,
         "blue": 0.3,
         "violet": 0.3,
         "grey": 0.3,
@@ -118,8 +155,20 @@ def multi_noise_callback(outdata, frames, time_info, status):
     dt = frames / base_rate
     final = np.zeros(frames)
     for ntype, noise_array in zip(
-        ["white", "pink", "brown", "blue", "violet", "grey", "green", "black"],
-        [white, pink, brown, blue, violet, grey, green, black],
+        [
+            "white",
+            "pink",
+            "brown",
+            "brown.2",
+            "brown.3",
+            "brown.4",
+            "blue",
+            "violet",
+            "grey",
+            "green",
+            "black",
+        ],
+        [white, pink, brown, brown2, brown3, brown4, blue, violet, grey, green, black],
     ):
         setting = mix_settings[ntype]
         mix_val = setting["mix"]
@@ -176,7 +225,8 @@ def slider_ui(stdscr, stop_event):
     stdscr.keypad(True)
     max_width = 50
     refresh_rate = 0.1
-
+    # Compute maximum label width so columns align
+    label_width = max(len(x) for x in types_order)
     usage_text = (
         "Up/Down:select, Left/Right:mix, 'o':toggle osc, 's':save preset, 'q':quit"
     )
@@ -190,11 +240,13 @@ def slider_ui(stdscr, stop_event):
             mix_val = setting["mix"]
             bar_len = int(mix_val * max_width)
             bar = "#" * bar_len + "-" * (max_width - bar_len)
-            line = f"{ntype.ljust(6)}: [{bar}] {mix_val:4.2f}  Osc: {'ON' if setting['osc'] else 'OFF'}"
+            # Use label_width to align names:
+            line = f"{ntype.ljust(label_width)}: [{bar}] {mix_val:4.2f}  Osc: {'ON' if setting['osc'] else 'OFF'}"
+            row_y = 4 + idx
             if idx == selected_index:
-                stdscr.addstr(4 + idx, 2, line, curses.A_REVERSE)
+                stdscr.addstr(row_y, 2, line, curses.A_REVERSE)
             else:
-                stdscr.addstr(4 + idx, 2, line)
+                stdscr.addstr(row_y, 2, line)
         stdscr.addstr(curses.LINES - 2, 2, log_message.ljust(curses.COLS - 4))
         stdscr.noutrefresh()
         curses.doupdate()
