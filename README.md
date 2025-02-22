@@ -1,11 +1,10 @@
 # workNoiseMixer
-Primarily this will mix white, pink and brown noise via a terminal app.
-However, this has four types of brown noise and also includes blue, violet, grey, green and black noise that can be mixed in at various levels and oscillated.
-This also has a build in oscilliscope so you can visualize the noise.
+This mixes white, pink, and brown noise via interface It includes four types of brown noise and also blue, violet, grey, green, and black noise which can be mixed at various levels and oscillated. Additionally, features built osc for visualizing the noise.
 
 ## WHY?  
-see https://add.org/brown-noise-adhd
+Distraction is a really bad problem for tech workers and brown noise mixes really help me to be able to deeply focus. And, I am not the only one. This is a well known work hack that you an use to increase focus and productivity.
 
+see https://add.org/brown-noise-adhd
 - Improved focus and productivity: This ambient noise can help to stimulate the ADHD brain as well as drown out surrounding background sounds and chatter that might distract you.
 - Reduced stress: Some people find that listening to brown noise produces a calming sensation due to its deeper frequency and sound.
 - Enhanced relaxation and sleep: Due to the soothing effects of brown noise, it can help promote relaxation. It may also help muffle noises around you at night, allowing you to fall asleep faster.
