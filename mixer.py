@@ -18,11 +18,20 @@ last_brown = 0.0
 # Global states for pink noise (Paul Kellet’s approximation)
 pink_b0 = pink_b1 = pink_b2 = pink_b3 = pink_b4 = pink_b5 = pink_b6 = 0.0
 
+# Add new global states for 'blue' and 'violet' noise generation
+blue_prev = 0.0
+violet_prev = 0.0
+
 # Global mix settings for each noise type
 mix_settings = {
     "white": {"mix": 0.2, "osc": False, "osc_phase": 0.0},
     "pink": {"mix": 0.2, "osc": False, "osc_phase": 0.0},
     "brown": {"mix": 0.6, "osc": False, "osc_phase": 0.0},
+    "blue": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
+    "violet": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
+    "grey": {"mix": 0.2, "osc": False, "osc_phase": 0.0},
+    "green": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
+    "black": {"mix": 0.0, "osc": False, "osc_phase": 0.0},
 }
 osc_freq = 0.1  # slower oscillation frequency
 log_message = ""  # global log message to display in UI
@@ -33,18 +42,18 @@ selected_index = 0  # for slider UI
 def multi_noise_callback(outdata, frames, time_info, status):
     global current_eff_rate, target_eff_rate, base_rate, last_brown
     global pink_b0, pink_b1, pink_b2, pink_b3, pink_b4, pink_b5, pink_b6
+    global blue_prev, violet_prev
 
     if status:
         print(status)
-    # Reduce smoothing to 0.0 to make brown noise changes more obvious
     smoothing = 0.0
     current_eff_rate += smoothing * (target_eff_rate - current_eff_rate)
-    scale = current_eff_rate / base_rate  # used only in brown noise
+    scale = current_eff_rate / base_rate
 
-    # Prepare empty arrays for each noise type
+    # Generate base white noise
     white = np.random.randn(frames)
 
-    # Generate pink noise using Paul Kellet’s algorithm
+    # Pink noise remains unchanged (Paul Kellet’s approximation)
     pink = np.empty(frames)
     for i in range(frames):
         white_sample = np.random.randn()
@@ -67,29 +76,55 @@ def multi_noise_callback(outdata, frames, time_info, status):
         pink[i] = curr_pink
         pink_b6 = white_sample * 0.115926
 
-    # Generate brown noise (using alternative method)
+    # Brown noise: revert to the previously used algorithm with increased alpha
     brown = np.empty(frames)
-    alpha = 0.02
+    alpha = 0.1  # increased from 0.02 for stronger integration
     for i in range(frames):
-        # Increase random step slightly for more noticeable volume changes
-        step = np.random.randn() * 0.15 * scale
+        step = np.random.randn() * 0.1 * scale
         last_brown = alpha * step + (1 - alpha) * last_brown
         brown[i] = last_brown
-    # Apply fixed gains per type to avoid clicks
-    fixed_gains = {"white": 0.3, "pink": 0.3, "brown": 0.3}
 
-    # Get dt for oscillation phase update
+    # Blue noise: first difference of white noise
+    blue = np.concatenate(([0], np.diff(white)))
+
+    # Violet noise: first difference of blue noise
+    violet = np.concatenate(([0], np.diff(blue)))
+
+    # Grey noise: scaled white noise
+    grey = 0.8 * white
+
+    # Green noise: moving average (low-pass filter) of white noise
+    kernel = np.ones(10) / 10.0
+    green = np.convolve(white, kernel, mode="same")
+
+    # Black noise: near-silence: greatly attenuated white noise
+    black = 0.01 * white
+
+    fixed_gains = {
+        "white": 0.3,
+        "pink": 0.3,
+        "brown": 1.0,  # increased brown gain from 0.3 to 1.0
+        "blue": 0.3,
+        "violet": 0.3,
+        "grey": 0.3,
+        "green": 0.3,
+        "black": 0.3,
+    }
+
     dt = frames / base_rate
     final = np.zeros(frames)
-    # For each noise type, apply mix and optional oscillation modulation
-    for ntype, noise_array in zip(["white", "pink", "brown"], [white, pink, brown]):
+    for ntype, noise_array in zip(
+        ["white", "pink", "brown", "blue", "violet", "grey", "green", "black"],
+        [white, pink, brown, blue, violet, grey, green, black],
+    ):
         setting = mix_settings[ntype]
         mix_val = setting["mix"]
         if setting["osc"]:
             mod = 0.5 + 0.5 * math.sin(setting["osc_phase"])
             mix_val *= mod
             setting["osc_phase"] += 2 * math.pi * osc_freq * dt
-        final += fixed_gains[ntype] * mix_val * noise_array
+        final += fixed_gains.get(ntype, 0.3) * mix_val * noise_array
+
     outdata[:] = final.reshape(-1, 1)
 
 
