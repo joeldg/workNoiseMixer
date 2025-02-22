@@ -9,7 +9,7 @@ import curses
 import json  # new import
 import os  # new import
 
-PRESET_FILE = "/Users/jgan/Projects/brownnoise/preset.json"  # new preset path
+PRESET_FILE = "~/.preset.json"  # new preset path
 
 # Global state for effective rate (for brown noise)
 base_rate = None  # set in main()
