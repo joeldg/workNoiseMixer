@@ -1,5 +1,7 @@
 # workNoiseMixer
-mix white, pink and brown noise via a terminal app.
+Primarily this will mix white, pink and brown noise via a terminal app.
+However, this has four types of brown noise and also includes blue, violet, grey, green and black noise that can be mixed in at various levels and oscillated.
+This also has a build in oscilliscope so you can visualize the noise.
 
 ## WHY?  
 see https://add.org/brown-noise-adhd
