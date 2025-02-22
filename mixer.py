@@ -9,7 +9,7 @@ import curses
 import json  # new import
 import os  # new import
 
-PRESET_FILE = "/Users/jgan/Projects/brownnoise/preset.json"  # new preset path
+PRESET_FILE = "~/.preset.json"  # new preset path
 
 # Global state for effective rate (for brown noise)
 base_rate = None  # set in main()
@@ -243,7 +243,7 @@ def slider_ui(stdscr, stop_event):
     label_width = max(len(x) for x in types_order)
     usage_text = (
         "Up/Down:select, Left/Right:mix, 'o':toggle osc, 's':save preset, "
-        "'z':zero, SPACE:pause/unpause, 'q':quit"
+        "'z':zero, SPACE:pause/unpause, 'q':quit, 'r':randomize"
     )
     while not stop_event.is_set():
         stdscr.erase()
@@ -353,6 +353,25 @@ def slider_ui(stdscr, stop_event):
             elif key == ord(" "):
                 paused = not paused
                 log_message = "Paused." if paused else "Unpaused."
+            elif key == ord("r"):
+                # Randomize noise type (mix_settings) values.
+                keys_list = list(mix_settings.keys())
+                # Choose one key to have a dominant mix (between 0.5 and 1.0).
+                dominant_key = random.choice(keys_list)
+                for ntype in mix_settings:
+                    if ntype == dominant_key:
+                        mix_settings[ntype]["mix"] = random.uniform(0.5, 1.0)
+                    else:
+                        mix_settings[ntype]["mix"] = random.uniform(0.0, 0.5)
+                # Set oscillator for at most two noise types.
+                oscillate_keys = random.sample(keys_list, min(2, len(keys_list)))
+                for ntype in mix_settings:
+                    mix_settings[ntype]["osc"] = ntype in oscillate_keys
+                    mix_settings[ntype]["osc_phase"] = random.random() * 2 * math.pi
+                # Randomize global oscillator frequency.
+                global osc_freq
+                osc_freq = random.uniform(0.05, 0.2)
+                log_message = "Randomized noise type settings."
             elif key == ord("q"):
                 stop_event.set()
         time.sleep(refresh_rate)
