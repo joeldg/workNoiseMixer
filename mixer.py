@@ -6,6 +6,10 @@ import random
 import time
 import math
 import curses
+import json  # new import
+import os  # new import
+
+PRESET_FILE = "/Users/jgan/Projects/brownnoise/preset.json"  # new preset path
 
 # Global state for effective rate (for brown noise)
 base_rate = None  # set in main()
@@ -132,6 +136,28 @@ def create_callback():
     return multi_noise_callback
 
 
+def save_preset():
+    # Save mix_settings to PRESET_FILE
+    global mix_settings
+    try:
+        with open(PRESET_FILE, "w") as f:
+            json.dump(mix_settings, f)
+    except Exception as e:
+        print("Error saving preset:", e)
+
+
+def load_preset():
+    # Load mix_settings from PRESET_FILE if exists
+    global mix_settings
+    if os.path.exists(PRESET_FILE):
+        try:
+            with open(PRESET_FILE, "r") as f:
+                preset = json.load(f)
+            mix_settings.update(preset)
+        except Exception as e:
+            print("Error loading preset:", e)
+
+
 def randomize_samplerate_thread(stop_event):
     global target_eff_rate, log_message
     while not stop_event.is_set():
@@ -151,27 +177,24 @@ def slider_ui(stdscr, stop_event):
     max_width = 50
     refresh_rate = 0.1
 
-    usage_text = "Use Up/Down to select noise, Left/Right to change mix, 'o' toggle osc, 'q' to quit"
+    usage_text = (
+        "Up/Down:select, Left/Right:mix, 'o':toggle osc, 's':save preset, 'q':quit"
+    )
 
     while not stop_event.is_set():
         stdscr.erase()
         stdscr.border()
-        # Shift usage instructions to row 2
         stdscr.addstr(2, 2, usage_text)
-
-        # Shift mixer lines to start at row 4
         for idx, ntype in enumerate(types_order):
             setting = mix_settings[ntype]
             mix_val = setting["mix"]
             bar_len = int(mix_val * max_width)
             bar = "#" * bar_len + "-" * (max_width - bar_len)
             line = f"{ntype.ljust(6)}: [{bar}] {mix_val:4.2f}  Osc: {'ON' if setting['osc'] else 'OFF'}"
-            row_y = 4 + idx
             if idx == selected_index:
-                stdscr.addstr(row_y, 2, line, curses.A_REVERSE)
+                stdscr.addstr(4 + idx, 2, line, curses.A_REVERSE)
             else:
-                stdscr.addstr(row_y, 2, line)
-
+                stdscr.addstr(4 + idx, 2, line)
         stdscr.addstr(curses.LINES - 2, 2, log_message.ljust(curses.COLS - 4))
         stdscr.noutrefresh()
         curses.doupdate()
@@ -194,6 +217,9 @@ def slider_ui(stdscr, stop_event):
             elif key == ord("o"):
                 curr = mix_settings[types_order[selected_index]]["osc"]
                 mix_settings[types_order[selected_index]]["osc"] = not curr
+            elif key == ord("s"):
+                save_preset()
+                log_message = "Preset saved."
             elif key == ord("q"):
                 stop_event.set()
         time.sleep(refresh_rate)
@@ -225,6 +251,8 @@ def main():
     base_rate = args.samplerate
     current_eff_rate = base_rate
     target_eff_rate = base_rate
+
+    load_preset()  # load preset on start
 
     stop_event = threading.Event()
     if args.randomize:
