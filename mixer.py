@@ -9,7 +9,7 @@ import curses
 import json  # new import
 import os  # new import
 
-PRESET_FILE = "~/.preset.json"  # new preset path
+PRESET_FILE = os.path.expanduser("~/.preset.json")  # new preset path
 
 # Global state for effective rate (for brown noise)
 base_rate = None  # set in main()
@@ -204,9 +204,12 @@ def save_preset():
 
 
 def load_preset():
-    # Load mix_settings from PRESET_FILE if exists
+    # Load mix_settings from PRESET_FILE if exists, or create it if missing.
     global mix_settings
-    if os.path.exists(PRESET_FILE):
+    if not os.path.exists(PRESET_FILE):
+        # Create an empty preset file with current settings.
+        save_preset()
+    else:
         try:
             with open(PRESET_FILE, "r") as f:
                 preset = json.load(f)
