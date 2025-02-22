@@ -56,15 +56,21 @@ types_order = [
     "black",
 ]
 selected_index = 0  # for slider UI
+paused = False  # new global pause flag
+last_waveform = None  # new global variable for oscilloscope data
 
 
 def multi_noise_callback(outdata, frames, time_info, status):
-    global current_eff_rate, target_eff_rate, base_rate, last_brown
+    global current_eff_rate, target_eff_rate, base_rate, last_brown, paused, last_waveform
     global pink_b0, pink_b1, pink_b2, pink_b3, pink_b4, pink_b5, pink_b6
     global blue_prev, violet_prev
 
     if status:
         print(status)
+    # Check pause flag
+    if paused:
+        outdata.fill(0)
+        return
     smoothing = 0.0
     current_eff_rate += smoothing * (target_eff_rate - current_eff_rate)
     scale = current_eff_rate / base_rate
@@ -179,6 +185,8 @@ def multi_noise_callback(outdata, frames, time_info, status):
         final += fixed_gains.get(ntype, 0.3) * mix_val * noise_array
 
     outdata[:] = final.reshape(-1, 1)
+    # Store a copy for the oscilloscope
+    last_waveform = final.copy()
 
 
 def create_callback():
@@ -219,18 +227,24 @@ def randomize_samplerate_thread(stop_event):
 
 
 def slider_ui(stdscr, stop_event):
-    global selected_index, log_message
+    global selected_index, log_message, paused, last_waveform
     curses.curs_set(0)
+    curses.start_color()  # initialize colors
+    # Define fixed color bands for oscilloscope rows:
+    curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)  # bottom third: green
+    curses.init_pair(
+        2, curses.COLOR_YELLOW, curses.COLOR_BLACK
+    )  # middle third: orange (magenta substitute)
+    curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)  # top third: red
     stdscr.nodelay(True)
     stdscr.keypad(True)
     max_width = 50
     refresh_rate = 0.1
-    # Compute maximum label width so columns align
     label_width = max(len(x) for x in types_order)
     usage_text = (
-        "Up/Down:select, Left/Right:mix, 'o':toggle osc, 's':save preset, 'q':quit"
+        "Up/Down:select, Left/Right:mix, 'o':toggle osc, 's':save preset, "
+        "'z':zero, SPACE:pause/unpause, 'q':quit"
     )
-
     while not stop_event.is_set():
         stdscr.erase()
         stdscr.border()
@@ -240,13 +254,48 @@ def slider_ui(stdscr, stop_event):
             mix_val = setting["mix"]
             bar_len = int(mix_val * max_width)
             bar = "#" * bar_len + "-" * (max_width - bar_len)
-            # Use label_width to align names:
             line = f"{ntype.ljust(label_width)}: [{bar}] {mix_val:4.2f}  Osc: {'ON' if setting['osc'] else 'OFF'}"
-            row_y = 4 + idx
-            if idx == selected_index:
-                stdscr.addstr(row_y, 2, line, curses.A_REVERSE)
-            else:
-                stdscr.addstr(row_y, 2, line)
+            stdscr.addstr(
+                4 + idx, 2, line, curses.A_REVERSE if idx == selected_index else 0
+            )
+
+        # Draw oscilloscope panel under mixer.
+        osc_start_row = 4 + len(types_order) + 1
+        osc_height = 10
+        osc_width = max_width  # width same as mix panel
+        osc_win = stdscr.derwin(osc_height, osc_width, osc_start_row, 2)
+        osc_win.erase()
+        if last_waveform is not None:
+            # Smooth waveform and downsample.
+            window = np.ones(5) / 5.0
+            smoothed = np.convolve(last_waveform, window, mode="same")
+            x_indices = np.linspace(0, len(smoothed) - 1, osc_width)
+            sampled = np.interp(x_indices, np.arange(len(smoothed)), smoothed)
+            for x, sample in enumerate(sampled):
+                # Map sample in [-1,1] to bar height.
+                h = int((sample + 1) / 2 * osc_height)
+                for y in range(osc_height - h, osc_height):
+                    # Determine fixed color based solely on row position:
+                    if y < osc_height / 3:
+                        color = curses.color_pair(3)  # red for top third
+                    elif y < 2 * osc_height / 3:
+                        color = curses.color_pair(
+                            2
+                        )  # orange (magenta) for middle third
+                    else:
+                        color = curses.color_pair(1)  # green for bottom third
+                    try:
+                        osc_win.addch(y, x, "█", color)
+                    except curses.error:
+                        pass
+        osc_win.border()
+        osc_win.noutrefresh()
+
+        # Add vertical amplitude labels beside the oscilloscope.
+        stdscr.addstr(osc_start_row + 1, 0, "1.0")
+        stdscr.addstr(osc_start_row + osc_height // 2, 0, "0.5")
+        stdscr.addstr(osc_start_row + osc_height - 1, 0, "0.0")
+
         stdscr.addstr(curses.LINES - 2, 2, log_message.ljust(curses.COLS - 4))
         stdscr.noutrefresh()
         curses.doupdate()
@@ -272,6 +321,13 @@ def slider_ui(stdscr, stop_event):
             elif key == ord("s"):
                 save_preset()
                 log_message = "Preset saved."
+            elif key == ord("z"):
+                for k in mix_settings:
+                    mix_settings[k]["mix"] = 0.0
+                log_message = "All mixer bars zeroed."
+            elif key == ord(" "):
+                paused = not paused
+                log_message = "Paused." if paused else "Unpaused."
             elif key == ord("q"):
                 stop_event.set()
         time.sleep(refresh_rate)
