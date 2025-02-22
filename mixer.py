@@ -230,7 +230,7 @@ def slider_ui(stdscr, stop_event):
     global selected_index, log_message, paused, last_waveform
     curses.curs_set(0)
     curses.start_color()  # initialize colors
-    # Define fixed color bands for oscilloscope rows:
+    # Fixed color bands for rows:
     curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)  # bottom third: green
     curses.init_pair(
         2, curses.COLOR_YELLOW, curses.COLOR_BLACK
@@ -262,32 +262,57 @@ def slider_ui(stdscr, stop_event):
         # Draw oscilloscope panel under mixer.
         osc_start_row = 4 + len(types_order) + 1
         osc_height = 10
-        osc_width = max_width  # width same as mix panel
+        osc_width = max_width  # match mix panel width
         osc_win = stdscr.derwin(osc_height, osc_width, osc_start_row, 2)
         osc_win.erase()
         if last_waveform is not None:
-            # Smooth waveform and downsample.
+            # Smooth and downsample together:
             window = np.ones(5) / 5.0
             smoothed = np.convolve(last_waveform, window, mode="same")
             x_indices = np.linspace(0, len(smoothed) - 1, osc_width)
             sampled = np.interp(x_indices, np.arange(len(smoothed)), smoothed)
-            for x, sample in enumerate(sampled):
-                # Map sample in [-1,1] to bar height.
-                h = int((sample + 1) / 2 * osc_height)
-                for y in range(osc_height - h, osc_height):
-                    # Determine fixed color based solely on row position:
+            window_size = 3  # use columns x-1 to x+1 for range calculation
+            for x in range(osc_width):
+                # Current sample point.
+                sample = sampled[x]
+                point_y = int((sample + 1) / 2 * osc_height)
+                # Compute range over a small window.
+                w_start = max(0, x - 1)
+                w_end = min(osc_width, x + 2)
+                window_vals = sampled[w_start:w_end]
+                rmin = min(window_vals)
+                rmax = max(window_vals)
+                y_min = int((rmin + 1) / 2 * osc_height)
+                y_max = int((rmax + 1) / 2 * osc_height)
+                # Draw vertical range bar (using block '█') for rows between y_min and y_max.
+                for y in range(y_min, y_max + 1):
+                    # Fixed color assignment based on row index.
                     if y < osc_height / 3:
-                        color = curses.color_pair(3)  # red for top third
+                        bar_color = curses.color_pair(3)  # red top
                     elif y < 2 * osc_height / 3:
-                        color = curses.color_pair(
-                            2
-                        )  # orange (magenta) for middle third
+                        bar_color = curses.color_pair(2)  # orange middle
                     else:
-                        color = curses.color_pair(1)  # green for bottom third
+                        bar_color = curses.color_pair(1)  # green bottom
                     try:
-                        osc_win.addch(y, x, "█", color)
+                        osc_win.addch(y, x, "•", bar_color)
                     except curses.error:
                         pass
+                # Draw a single point for the current sample.
+                if point_y >= osc_height:
+                    point_y = osc_height - 1
+                if point_y < 0:
+                    point_y = 0
+                # Use the fixed color based on point_y.
+                if point_y < osc_height / 3:
+                    pt_color = curses.color_pair(3)
+                elif point_y < 2 * osc_height / 3:
+                    pt_color = curses.color_pair(2)
+                else:
+                    pt_color = curses.color_pair(1)
+                try:
+                    osc_win.addch(point_y, x, "•", pt_color)
+                except curses.error:
+                    pass
         osc_win.border()
         osc_win.noutrefresh()
 
