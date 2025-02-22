@@ -12,7 +12,7 @@ see https://add.org/brown-noise-adhd
 
 This solves a problem I have where I have been listening to YouTube brown noise mixers and then forgot about them and suddenly they will swap over to some other video with people talking etc. 
 
-
+<img width="878" alt="Screenshot 2025-02-21 at 8 15 40 PM" src="https://github.com/user-attachments/assets/db7d727f-7536-49f6-beb2-90b2e34bf44f" />
 
 You may need to install the following
 
