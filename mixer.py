@@ -8,6 +8,7 @@ import math
 import curses
 import json  # new import
 import os  # new import
+import asciichartpy  # replaced plotille
 
 PRESET_FILE = os.path.expanduser("~/.preset.json")  # new preset path
 
@@ -58,6 +59,9 @@ types_order = [
 selected_index = 0  # for slider UI
 paused = False  # new global pause flag
 last_waveform = None  # new global variable for oscilloscope data
+rate_history = []  # new global variable
+random_rate_min = 1200  # new global: lower bound for random changes
+random_rate_max = 2000  # new global: upper bound for random changes
 
 
 def multi_noise_callback(outdata, frames, time_info, status):
@@ -219,164 +223,195 @@ def load_preset():
 
 
 def randomize_samplerate_thread(stop_event):
-    global target_eff_rate, log_message
+    global target_eff_rate, log_message, rate_history, random_rate_min, random_rate_max
     while not stop_event.is_set():
         time.sleep(20)
-        new_rate = random.randint(1200, 2000)
+        new_rate = random.randint(random_rate_min, random_rate_max)
         target_eff_rate = new_rate
-        log_message = (
-            f"Effective rate changed to {new_rate}"  # update log instead of printing
-        )
+        rate_history.append(new_rate)
+        if len(rate_history) > 50:
+            rate_history.pop(0)
+        log_message = f"Effective rate changed to {new_rate}"
 
 
 def slider_ui(stdscr, stop_event):
-    global selected_index, log_message, paused, last_waveform
+    global selected_index, log_message, paused, last_waveform, mix_settings, rate_history, osc_freq
+    global random_rate_min, random_rate_max  # add this line
     curses.curs_set(0)
     curses.start_color()  # initialize colors
-    # Fixed color bands for rows:
-    curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)  # bottom third: green
-    curses.init_pair(
-        2, curses.COLOR_YELLOW, curses.COLOR_BLACK
-    )  # middle third: orange (magenta substitute)
-    curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)  # top third: red
+    curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)
     stdscr.nodelay(True)
     stdscr.keypad(True)
     max_width = 50
     refresh_rate = 0.1
     label_width = max(len(x) for x in types_order)
+    # Add focus mode variable: "noise" or "range"
+    focus_mode = "noise"
     usage_text = (
-        "Up/Down:select, Left/Right:mix, 'o':toggle osc, 's':save preset, "
+        "TAB:Toggle Control | Up/Down/Left/Right:adjust | 'o':toggle osc, 's':save preset, "
         "'z':zero, SPACE:pause/unpause, 'q':quit, 'r':randomize"
     )
+    # Initialize equalizer levels for 10 bands
+    eq_height = 10
+    num_bands = 10
+    eq_levels = [0 for _ in range(num_bands)]
+    # Set positions for graphs (unchanged)
+    eq_win_y = 4 + len(types_order) + 3  # shifted down to make room for samplerate slider
+    eq_win_x = 2
+    eq_win_width = num_bands * 2 + 2
+    eq_win_height = eq_height + 2
+    rate_height = 10
+    rate_win_width = max_width + 2
+    rate_win_height = rate_height + 2
+    rate_win_y = eq_win_y
+    rate_win_x = eq_win_x + eq_win_width + 2
+
     while not stop_event.is_set():
         stdscr.erase()
         stdscr.border()
         stdscr.addstr(2, 2, usage_text)
+        # --- Display Samplerate Range slider ---
+        # Use global random_rate_min and random_rate_max
+        range_label = f"Samplerate Range: {random_rate_min} - {random_rate_max}"
+        stdscr.addstr(3, 2, range_label, curses.A_REVERSE if focus_mode=="range" else 0)
+        # --- End Samplerate Range slider ---
+        
+        # Draw noise type sliders below (unchanged)
         for idx, ntype in enumerate(types_order):
             setting = mix_settings[ntype]
             mix_val = setting["mix"]
             bar_len = int(mix_val * max_width)
             bar = "#" * bar_len + "-" * (max_width - bar_len)
             line = f"{ntype.ljust(label_width)}: [{bar}] {mix_val:4.2f}  Osc: {'ON' if setting['osc'] else 'OFF'}"
-            stdscr.addstr(
-                4 + idx, 2, line, curses.A_REVERSE if idx == selected_index else 0
-            )
-
-        # Draw oscilloscope panel under mixer.
-        osc_start_row = 4 + len(types_order) + 1
-        osc_height = 10
-        osc_width = max_width  # match mix panel width
-        osc_win = stdscr.derwin(osc_height, osc_width, osc_start_row, 2)
-        osc_win.erase()
-        if last_waveform is not None:
-            # Smooth and downsample together:
-            window = np.ones(5) / 5.0
-            smoothed = np.convolve(last_waveform, window, mode="same")
-            x_indices = np.linspace(0, len(smoothed) - 1, osc_width)
-            sampled = np.interp(x_indices, np.arange(len(smoothed)), smoothed)
-            window_size = 3  # use columns x-1 to x+1 for range calculation
-            for x in range(osc_width):
-                # Current sample point.
-                sample = sampled[x]
-                point_y = int((sample + 1) / 2 * osc_height)
-                # Compute range over a small window.
-                w_start = max(0, x - 1)
-                w_end = min(osc_width, x + 2)
-                window_vals = sampled[w_start:w_end]
-                rmin = min(window_vals)
-                rmax = max(window_vals)
-                y_min = int((rmin + 1) / 2 * osc_height)
-                y_max = int((rmax + 1) / 2 * osc_height)
-                # Draw vertical range bar (using block '█') for rows between y_min and y_max.
-                for y in range(y_min, y_max + 1):
-                    # Fixed color assignment based on row index.
-                    if y < osc_height / 3:
-                        bar_color = curses.color_pair(3)  # red top
-                    elif y < 2 * osc_height / 3:
-                        bar_color = curses.color_pair(2)  # orange middle
-                    else:
-                        bar_color = curses.color_pair(1)  # green bottom
-                    try:
-                        osc_win.addch(y, x, "•", bar_color)
-                    except curses.error:
-                        pass
-                # Draw a single point for the current sample.
-                if point_y >= osc_height:
-                    point_y = osc_height - 1
-                if point_y < 0:
-                    point_y = 0
-                # Use the fixed color based on point_y.
-                if point_y < osc_height / 3:
-                    pt_color = curses.color_pair(3)
-                elif point_y < 2 * osc_height / 3:
-                    pt_color = curses.color_pair(2)
-                else:
-                    pt_color = curses.color_pair(1)
+            stdscr.addstr(4 + idx, 2, line, curses.A_REVERSE if (focus_mode=="noise" and idx==selected_index) else 0)
+        
+        # --- Equalizer and Rate Graphs (unchanged) ---
+        if last_waveform is not None and len(last_waveform) > 0:
+            spectrum = np.abs(np.fft.rfft(last_waveform))
+            freqs = np.linspace(0, base_rate/2, len(spectrum))
+            new_levels = []
+            band_width = (base_rate/2) / num_bands
+            for i in range(num_bands):
+                band_min = band_width * i
+                band_max = band_width * (i + 1)
+                idxs = np.where((freqs >= band_min) & (freqs < band_max))[0]
+                level = np.mean(spectrum[idxs]) if len(idxs) > 0 else 0
+                new_levels.append(level)
+            max_level = max(new_levels) if max(new_levels) > 0 else 1
+            eq_levels = [int((lev / max_level) * eq_height) for lev in new_levels]
+        else:
+            for i in range(num_bands):
+                change = random.randint(-1, 1)
+                eq_levels[i] = max(0, min(eq_height, eq_levels[i] + change))
+        # Draw Equalizer window with label
+        eq_win = stdscr.derwin(eq_win_height, eq_win_width, eq_win_y, eq_win_x)
+        eq_win.erase()
+        eq_win.border()
+        try:
+            eq_win.addstr(0, 2, "Equalizer")
+        except curses.error:
+            pass
+        for band in range(num_bands):
+            level = eq_levels[band]
+            if level < eq_height * 0.4:
+                color = curses.color_pair(1)
+            elif level < eq_height * 0.7:
+                color = curses.color_pair(2)
+            else:
+                color = curses.color_pair(3)
+            for row in range(eq_height):
+                char = "█" if (eq_height - row) <= level else " "
                 try:
-                    osc_win.addch(point_y, x, "•", pt_color)
+                    eq_win.addstr(1 + row, 2 * band + 1, char, color)
                 except curses.error:
                     pass
-        osc_win.border()
-        osc_win.noutrefresh()
-
-        # Add vertical amplitude labels beside the oscilloscope.
-        stdscr.addstr(osc_start_row + 1, 0, "1.0")
-        stdscr.addstr(osc_start_row + osc_height // 2, 0, "0.5")
-        stdscr.addstr(osc_start_row + osc_height - 1, 0, "0.0")
-
+        eq_win.noutrefresh()
+        # Draw Rate Graph window with label
+        config = {'height': rate_height}
+        rate_chart = asciichartpy.plot(rate_history, config) if rate_history else ""
+        rate_win = stdscr.derwin(rate_win_height, rate_win_width, rate_win_y, rate_win_x)
+        rate_win.erase()
+        rate_win.border()
+        try:
+            rate_win.addstr(0, 2, "Rate Graph")
+        except curses.error:
+            pass
+        for j, line in enumerate(rate_chart.splitlines()):
+            if j < rate_height:
+                try:
+                    rate_win.addstr(1 + j, 1, line[:max_width])
+                except curses.error:
+                    pass
+        rate_win.noutrefresh()
+        # --- End Graphs ---
+        
         stdscr.addstr(curses.LINES - 2, 2, log_message.ljust(curses.COLS - 4))
         stdscr.noutrefresh()
         curses.doupdate()
-
+        
         try:
             key = stdscr.getch()
         except:
             key = -1
         if key != -1:
-            if key == curses.KEY_UP:
-                selected_index = (selected_index - 1) % len(types_order)
-            elif key == curses.KEY_DOWN:
-                selected_index = (selected_index + 1) % len(types_order)
-            elif key == curses.KEY_LEFT:
-                curr = mix_settings[types_order[selected_index]]["mix"]
-                mix_settings[types_order[selected_index]]["mix"] = max(0.0, curr - 0.05)
-            elif key == curses.KEY_RIGHT:
-                curr = mix_settings[types_order[selected_index]]["mix"]
-                mix_settings[types_order[selected_index]]["mix"] = min(1.0, curr + 0.05)
-            elif key == ord("o"):
-                curr = mix_settings[types_order[selected_index]]["osc"]
-                mix_settings[types_order[selected_index]]["osc"] = not curr
-            elif key == ord("s"):
-                save_preset()
-                log_message = "Preset saved."
-            elif key == ord("z"):
-                for k in mix_settings:
-                    mix_settings[k]["mix"] = 0.0
-                log_message = "All mixer bars zeroed."
-            elif key == ord(" "):
-                paused = not paused
-                log_message = "Paused." if paused else "Unpaused."
-            elif key == ord("r"):
-                # Randomize noise type (mix_settings) values.
-                keys_list = list(mix_settings.keys())
-                # Choose one key to have a dominant mix (between 0.5 and 1.0).
-                dominant_key = random.choice(keys_list)
-                for ntype in mix_settings:
-                    if ntype == dominant_key:
-                        mix_settings[ntype]["mix"] = random.uniform(0.5, 1.0)
-                    else:
-                        mix_settings[ntype]["mix"] = random.uniform(0.0, 0.5)
-                # Set oscillator for at most two noise types.
-                oscillate_keys = random.sample(keys_list, min(2, len(keys_list)))
-                for ntype in mix_settings:
-                    mix_settings[ntype]["osc"] = ntype in oscillate_keys
-                    mix_settings[ntype]["osc_phase"] = random.random() * 2 * math.pi
-                # Randomize global oscillator frequency.
-                global osc_freq
-                osc_freq = random.uniform(0.05, 0.2)
-                log_message = "Randomized noise type settings."
-            elif key == ord("q"):
-                stop_event.set()
+            if key == 9:  # TAB key toggles focus mode
+                focus_mode = "range" if focus_mode=="noise" else "noise"
+            elif focus_mode=="range":
+                # Adjust samplerate range
+                if key == curses.KEY_LEFT:
+                    random_rate_min = max(0, random_rate_min - 50)
+                elif key == curses.KEY_RIGHT:
+                    # Prevent lower bound from reaching upper bound
+                    if random_rate_min + 50 < random_rate_max:
+                        random_rate_min += 50
+                elif key == curses.KEY_DOWN:
+                    # Decrease upper bound but keep a margin of at least 50
+                    if random_rate_max - 50 > random_rate_min:
+                        random_rate_max -= 50
+                elif key == curses.KEY_UP:
+                    random_rate_max += 50
+            else:  # focus_mode == "noise"
+                if key == curses.KEY_UP:
+                    selected_index = (selected_index - 1) % len(types_order)
+                elif key == curses.KEY_DOWN:
+                    selected_index = (selected_index + 1) % len(types_order)
+                elif key == curses.KEY_LEFT:
+                    curr = mix_settings[types_order[selected_index]]["mix"]
+                    mix_settings[types_order[selected_index]]["mix"] = max(0.0, curr - 0.05)
+                elif key == curses.KEY_RIGHT:
+                    curr = mix_settings[types_order[selected_index]]["mix"]
+                    mix_settings[types_order[selected_index]]["mix"] = min(1.0, curr + 0.05)
+                elif key == ord("o"):
+                    curr = mix_settings[types_order[selected_index]]["osc"]
+                    mix_settings[types_order[selected_index]]["osc"] = not curr
+                elif key == ord("s"):
+                    save_preset()
+                    log_message = "Preset saved."
+                elif key == ord("z"):
+                    for k in mix_settings:
+                        mix_settings[k]["mix"] = 0.0
+                    log_message = "All mixer bars zeroed."
+                elif key == ord(" "):
+                    paused = not paused
+                    log_message = "Paused." if paused else "Unpaused."
+                elif key == ord("r"):
+                    keys_list = list(mix_settings.keys())
+                    dominant_key = random.choice(keys_list)
+                    for ntype in mix_settings:
+                        if ntype == dominant_key:
+                            mix_settings[ntype]["mix"] = random.uniform(0.5, 1.0)
+                        else:
+                            mix_settings[ntype]["mix"] = random.uniform(0.0, 0.5)
+                    oscillate_keys = random.sample(keys_list, min(2, len(keys_list)))
+                    for ntype in mix_settings:
+                        mix_settings[ntype]["osc"] = ntype in oscillate_keys
+                        mix_settings[ntype]["osc_phase"] = random.random() * 2 * math.pi
+                    osc_freq = random.uniform(0.05, 0.2)
+                    log_message = "Randomized noise type settings."
+                elif key == ord("q"):
+                    stop_event.set()
         time.sleep(refresh_rate)
 
 
