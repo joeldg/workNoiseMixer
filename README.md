@@ -10,7 +10,7 @@ see https://add.org/brown-noise-adhd
 - Enhanced relaxation and sleep: Due to the soothing effects of brown noise, it can help promote relaxation. It may also help muffle noises around you at night, allowing you to fall asleep faster.
 
 This solves a problem I have where I have been listening to YouTube brown noise mixers and then forgot about them and suddenly they will swap over to some other video with people talking etc. 
-<img width="969" alt="Screenshot 2025-02-26 at 5 07 42 PM" src="https://github.com/user-attachments/assets/380ac06a-be16-4fd6-a57d-c11d7f6a1743" />
+<img width="969" alt="Screenshot 2025-02-26 at 6 32 14 PM" src="https://github.com/user-attachments/assets/7d86aa7d-bf06-4c90-a589-f0fbda9bce80" />
 
 You may need to install the following
 
