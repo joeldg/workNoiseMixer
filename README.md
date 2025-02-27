@@ -10,10 +10,9 @@ see https://add.org/brown-noise-adhd
 - Enhanced relaxation and sleep: Due to the soothing effects of brown noise, it can help promote relaxation. It may also help muffle noises around you at night, allowing you to fall asleep faster.
 
 This solves a problem I have where I have been listening to YouTube brown noise mixers and then forgot about them and suddenly they will swap over to some other video with people talking etc. 
-
-<img width="878" alt="Screenshot 2025-02-21 at 8 15 40 PM" src="https://github.com/user-attachments/assets/db7d727f-7536-49f6-beb2-90b2e34bf44f" />
+<img width="969" alt="Screenshot 2025-02-26 at 5 07 42 PM" src="https://github.com/user-attachments/assets/380ac06a-be16-4fd6-a57d-c11d7f6a1743" />
 
 You may need to install the following
 
-`pip install numpy sounddevice argparse curses`
+`pip install numpy sounddevice argparse curses asciichartpy`
 
